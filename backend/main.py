@@ -1,34 +1,61 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, HTTPException, Depends, status
 from sqlalchemy.orm import Session
-from typing import List, Optional  # <--- Aquí agregamos Optional
+from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, time, timedelta
 
-import models
-import schemas
-from database import engine, get_db
+import models, schemas, database
 
-models.Base.metadata.create_all(bind=engine)
+app = FastAPI(title="API Club Noemí Acosta", version="1.0.0")
 
-app = FastAPI(title="API Club Noemí Acosta")
-from fastapi.middleware.cors import CORSMiddleware
+# Dependencia para obtener sesión de DB
+def get_db():
+    db = database.SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Habilitar CORS para que React pueda hacer peticiones
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# --- AUTENTICACIÓN ---
 
-@app.get("/")
-def read_root():
-    return {"mensaje": "Bienvenido a la API del Club Noemí Acosta"}
+@app.post("/auth/register", response_model=schemas.UsuarioResponse, status_code=status.HTTP_201_CREATED)
+def registrar_usuario(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db)):
+    user_exist = db.query(models.Usuario).filter(models.Usuario.email == usuario.email).first()
+    if user_exist:
+        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado")
+    
+    dni_exist = db.query(models.Usuario).filter(models.Usuario.dni == usuario.dni).first()
+    if dni_exist:
+        raise HTTPException(status_code=400, detail="El DNI ya está registrado")
 
-# --- RUTAS DE SEDES ---
+    nuevo_usuario = models.Usuario(**usuario.model_dump())
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    return nuevo_usuario
+
+@app.post("/auth/login")
+def login(credenciales: schemas.UsuarioLogin, db: Session = Depends(get_db)):
+    user = db.query(models.Usuario).filter(models.Usuario.email == credenciales.email).first()
+    if not user or user.password != credenciales.password:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    return {"message": "Login exitoso", "user_id": user.id, "email": user.email}
+
+@app.post("/auth/recover-password")
+def recover_password(data: schemas.RecoverPassword, db: Session = Depends(get_db)):
+    user = db.query(models.Usuario).filter(models.Usuario.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    user.password = data.new_password
+    db.commit()
+    return {"message": "Contraseña actualizada exitosamente"}
+
+# --- SEDES ---
+
 @app.get("/sedes", response_model=List[schemas.SedeResponse])
 def obtener_sedes(db: Session = Depends(get_db)):
-    return db.query(models.Sede).all()
+    return db.query(models.Sede).filter(models.Sede.activa == True).all()
 
 @app.post("/sedes", response_model=schemas.SedeResponse, status_code=status.HTTP_201_CREATED)
 def crear_sede(sede: schemas.SedeCreate, db: Session = Depends(get_db)):
@@ -38,12 +65,15 @@ def crear_sede(sede: schemas.SedeCreate, db: Session = Depends(get_db)):
     db.refresh(nueva_sede)
     return nueva_sede
 
-# --- RUTAS DE ESPACIOS DEPORTIVOS ---
+# --- ESPACIOS DEPORTIVOS ---
+
 @app.get("/espacios", response_model=List[schemas.EspacioResponse])
-def obtener_espacios(sede_id: Optional[UUID] = None, db: Session = Depends(get_db)):
-    query = db.query(models.EspacioDeportivo)
+def obtener_espacios(sede_id: Optional[UUID] = None, deporte: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(models.EspacioDeportivo).filter(models.EspacioDeportivo.activo == True)
     if sede_id:
         query = query.filter(models.EspacioDeportivo.sede_id == sede_id)
+    if deporte:
+        query = query.filter(models.EspacioDeportivo.deporte.ilike(f"%{deporte}%"))
     return query.all()
 
 @app.post("/espacios", response_model=schemas.EspacioResponse, status_code=status.HTTP_201_CREATED)
@@ -54,15 +84,66 @@ def crear_espacio(espacio: schemas.EspacioCreate, db: Session = Depends(get_db))
     db.refresh(nuevo_espacio)
     return nuevo_espacio
 
-# --- RUTAS DE RESERVAS ---
+# --- RESERVAS ---
+
 @app.get("/reservas", response_model=List[schemas.ReservaResponse])
-def obtener_reservas(db: Session = Depends(get_db)):
-    return db.query(models.Reserva).all()
+def obtener_reservas(usuario_id: Optional[UUID] = None, db: Session = Depends(get_db)):
+    query = db.query(models.Reserva)
+    if usuario_id:
+        query = query.filter(models.Reserva.usuario_id == usuario_id)
+    return query.all()
 
 @app.post("/reservas", response_model=schemas.ReservaResponse, status_code=status.HTTP_201_CREATED)
 def crear_reserva(reserva: schemas.ReservaCreate, db: Session = Depends(get_db)):
-    nueva_reserva = models.Reserva(**reserva.model_dump())
+    # 1. Validar que la hora comience y termine en el minuto 00
+    if reserva.hora_inicio.minute != 0 or reserva.hora_fin.minute != 0:
+        raise HTTPException(status_code=400, detail="Las reservas deben hacerse en horarios en punto (minuto 00)")
+
+    # 2. Validar duración mínima (al menos 1 hora)
+    duracion = (datetime.combine(datetime.min, reserva.hora_fin) - datetime.combine(datetime.min, reserva.hora_inicio)).total_seconds() / 3600
+    if duracion < 1:
+        raise HTTPException(status_code=400, detail="La reserva debe durar como mínimo 1 hora")
+
+    # 3. Validar disponibilidad (superposición de horarios)
+    solapada = db.query(models.Reserva).filter(
+        models.Reserva.espacio_id == reserva.espacio_id,
+        models.Reserva.fecha == reserva.fecha,
+        models.Reserva.estado == "confirmada",
+        models.Reserva.hora_inicio < reserva.hora_fin,
+        models.Reserva.hora_fin > reserva.hora_inicio
+    ).first()
+
+    if solapada:
+        raise HTTPException(status_code=409, detail="El espacio deportivo no está disponible en ese horario")
+
+    # 4. Obtener precio del espacio para calcular monto total
+    espacio = db.query(models.EspacioDeportivo).filter(models.EspacioDeportivo.id == reserva.espacio_id).first()
+    if not espacio:
+        raise HTTPException(status_code=404, detail="El espacio deportivo especificado no existe")
+
+    monto_total = espacio.precio_por_hora * duracion
+
+    nueva_reserva = models.Reserva(
+        usuario_id=reserva.usuario_id,
+        espacio_id=reserva.espacio_id,
+        fecha=reserva.fecha,
+        hora_inicio=reserva.hora_inicio,
+        hora_fin=reserva.hora_fin,
+        monto_total=monto_total,
+        estado="confirmada"
+    )
+
     db.add(nueva_reserva)
     db.commit()
     db.refresh(nueva_reserva)
     return nueva_reserva
+
+@app.delete("/reservas/{reserva_id}")
+def cancelar_reserva(reserva_id: UUID, db: Session = Depends(get_db)):
+    reserva = db.query(models.Reserva).filter(models.Reserva.id == reserva_id).first()
+    if not reserva:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+
+    reserva.estado = "cancelada"
+    db.commit()
+    return {"message": "Reserva cancelada exitosamente"}

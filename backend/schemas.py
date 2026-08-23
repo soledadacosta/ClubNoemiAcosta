@@ -3,7 +3,7 @@ from datetime import date, time
 from uuid import UUID
 from typing import Optional
 
-# --- SCHEMAS DE USUARIO ---
+# --- USUARIOS & AUTH ---
 class UsuarioCreate(BaseModel):
     nombre: str
     apellido: str
@@ -16,6 +16,10 @@ class UsuarioLogin(BaseModel):
     email: EmailStr
     password: str
 
+class RecoverPassword(BaseModel):
+    email: EmailStr
+    new_password: str
+
 class UsuarioResponse(BaseModel):
     id: UUID
     nombre: str
@@ -27,7 +31,7 @@ class UsuarioResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- SCHEMAS DE SEDES ---
+# --- SEDES ---
 class SedeCreate(BaseModel):
     nombre: str
     direccion: str
@@ -46,10 +50,10 @@ class SedeResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- SCHEMAS DE ESPACIOS DEPORTIVOS ---
+# --- ESPACIOS DEPORTIVOS ---
 class EspacioCreate(BaseModel):
     sede_id: UUID
-    nombre: str
+    nombre: str  # Ej: Moron_Rivadavia_19850_Paddle_1
     deporte: str
     precio_por_hora: float
     activo: bool = True
@@ -65,8 +69,9 @@ class EspacioResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- SCHEMAS DE RESERVAS ---
+# --- RESERVAS ---
 class ReservaCreate(BaseModel):
+    usuario_id: UUID
     espacio_id: UUID
     fecha: date
     hora_inicio: time
