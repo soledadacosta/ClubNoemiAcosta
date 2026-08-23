@@ -1,0 +1,16 @@
+# Python / FastAPI
+backend/venv/
+**/__pycache__/
+*.pyc
+.env
+*.db
+*.sqlite3
+
+# IDEs
+.vscode/
+.idea/
+
+# Flutter / Dart
+.dart_tool/
+.build/
+build/
