@@ -25,7 +25,7 @@ class ClubNoemiApp extends StatelessWidget {
   }
 }
 
-// Global user session
+// Sesión global de usuario
 String? currentUserId;
 String? currentUserName;
 
@@ -43,36 +43,42 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
 
   Future<void> _login() async {
-    setState(() => _loading = true);
-    try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text,
-          'password': _passController.text,
-        }),
-      );
+  setState(() => _loading = true);
+  try {
+    final res = await http.post(
+      Uri.parse('$baseUrl/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': _emailController.text.trim(),
+        'password': _passController.text.trim(),
+      }),
+    );
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        currentUserId = data['id'];
-        currentUserName = "${data['nombre']} ${data['apellido']}";
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const MainTabsScreen()),
-          );
-        }
-      } else {
-        _showError('Credenciales inválidas');
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      
+      // Mapeo seguro con los datos devueltos por el backend
+      currentUserId = data['id'] ?? data['user_id'];
+      currentUserName = data['nombre'] != null 
+          ? "${data['nombre']} ${data['apellido']}" 
+          : data['email'];
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainTabsScreen()),
+        );
       }
-    } catch (e) {
-      _showError('Error de conexión');
-    } finally {
-      setState(() => _loading = false);
+    } else {
+      final error = jsonDecode(res.body);
+      _showError(error['detail'] ?? 'Credenciales inválidas');
     }
+  } catch (e) {
+    _showError('Error de conexión o parseo: $e');
+  } finally {
+    setState(() => _loading = false);
   }
+}
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -114,7 +120,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-
 // --- 2. REGISTER SCREEN ---
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -129,53 +134,112 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _dni = TextEditingController();
   final _email = TextEditingController();
   final _pass = TextEditingController();
+  bool _loading = false;
 
   Future<void> _register() async {
-    final res = await http.post(
-      Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'nombre': _nombre.text,
-        'apellido': _apellido.text,
-        'dni': _dni.text,
-        'fecha_nacimiento': '2000-01-01',
-        'email': _email.text,
-        'password': _pass.text,
-      }),
-    );
+    setState(() => _loading = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nombre': _nombre.text.trim(),
+          'apellido': _apellido.text.trim(),
+          'dni': _dni.text.trim(),
+          'fecha_nacimiento': '2000-01-01',
+          'email': _email.text.trim(),
+          'password': _pass.text.trim(),
+        }),
+      );
 
-    if (res.statusCode == 201) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cuenta creada con éxito!')));
-        Navigator.pop(context);
+      if (res.statusCode == 201) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('¡Cuenta creada con éxito! Ya podés ingresar.'), backgroundColor: Colors.green),
+          );
+          Navigator.pop(context);
+        }
+      } else {
+        final error = jsonDecode(res.body);
+        final msg = error['detail'] is List ? error['detail'][0]['msg'] : error['detail'] ?? 'Error al registrar';
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
       }
-    } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al registrar usuario')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de conexión: $e'), backgroundColor: Colors.red));
+    } finally {
+      setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Registro')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            TextField(controller: _nombre, decoration: const InputDecoration(labelText: 'Nombre')),
-            TextField(controller: _apellido, decoration: const InputDecoration(labelText: 'Apellido')),
-            TextField(controller: _dni, decoration: const InputDecoration(labelText: 'DNI')),
-            TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email')),
-            TextField(controller: _pass, obscureText: true, decoration: const InputDecoration(labelText: 'Contraseña')),
-            const SizedBox(height: 24),
-            ElevatedButton(onPressed: _register, child: const Text('Crear Cuenta'))
-          ],
+      appBar: AppBar(title: const Text('Registro de Usuario')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 450),
+            child: Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.person_add_alt_1_rounded, size: 48, color: Colors.deepPurple),
+                    const SizedBox(height: 16),
+                    const Text('Crear Nueva Cuenta', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _nombre,
+                      decoration: const InputDecoration(labelText: 'Nombre', prefixIcon: Icon(Icons.person), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _apellido,
+                      decoration: const InputDecoration(labelText: 'Apellido', prefixIcon: Icon(Icons.person_outline), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _dni,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'DNI', prefixIcon: Icon(Icons.badge), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _pass,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Contraseña', prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 24),
+                    _loading
+                        ? const CircularProgressIndicator()
+                        : ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(50),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: _register,
+                            child: const Text('Crear Cuenta', style: TextStyle(fontSize: 16)),
+                          )
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
-
 // --- 3. MAIN TABS SCREEN ---
 class MainTabsScreen extends StatefulWidget {
   const MainTabsScreen({super.key});
@@ -204,7 +268,7 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
   }
 }
 
-// --- 4. SEDES & ESPACIOS PAGE ---
+// --- 4. SEDES PAGE ---
 class SedesPage extends StatefulWidget {
   const SedesPage({super.key});
 
@@ -251,6 +315,7 @@ class _SedesPageState extends State<SedesPage> {
   }
 }
 
+// --- 5. ESPACIOS PAGE CON SELECTOR DE FECHA Y HORA ---
 class EspaciosPage extends StatefulWidget {
   final String sedeId;
   final String sedeNombre;
@@ -262,10 +327,21 @@ class EspaciosPage extends StatefulWidget {
 
 class _EspaciosPageState extends State<EspaciosPage> {
   List espacios = [];
+  DateTime selectedDate = DateTime.now();
+  String selectedHora = '18:00';
+
+  final List<String> horariosDisponibles = [
+    '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
+    '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'
+  ];
 
   @override
   void initState() {
     super.initState();
+    _loadEspacios();
+  }
+
+  void _loadEspacios() {
     http.get(Uri.parse('$baseUrl/espacios?sede_id=${widget.sedeId}')).then((res) {
       if (res.statusCode == 200) {
         setState(() => espacios = jsonDecode(res.body));
@@ -273,54 +349,112 @@ class _EspaciosPageState extends State<EspaciosPage> {
     });
   }
 
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (picked != null && picked != selectedDate) {
+      setState(() {
+        selectedDate = picked;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fechaFormateada = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
+
     return Scaffold(
       appBar: AppBar(title: Text(widget.sedeNombre)),
-      body: ListView.builder(
-        itemCount: espacios.length,
-        itemBuilder: (_, i) {
-          final e = espacios[i];
-          return Card(
-            margin: const EdgeInsets.all(8),
-            child: ListTile(
-              title: Text(e['nombre']),
-              subtitle: Text("${e['deporte']} - \$${e['precio_por_hora']}/hs"),
-              trailing: ElevatedButton(
-                child: const Text('Reservar'),
-                onPressed: () => _reservar(e['id']),
-              ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.deepPurple.shade50,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_today),
+                  label: Text(fechaFormateada),
+                  onPressed: () => _selectDate(context),
+                ),
+                DropdownButton<String>(
+                  value: selectedHora,
+                  items: horariosDisponibles.map((String hora) {
+                    return DropdownMenuItem<String>(
+                      value: hora,
+                      child: Text("$hora hs"),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setState(() => selectedHora = val);
+                  },
+                ),
+              ],
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: espacios.length,
+              itemBuilder: (_, i) {
+                final e = espacios[i];
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: ListTile(
+                    title: Text(e['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text("${e['deporte']} - \$${e['precio_por_hora']}/hs"),
+                    trailing: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+                      child: const Text('Reservar'),
+                      onPressed: () => _reservar(e['id'], fechaFormateada),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _reservar(String espacioId) async {
+  Future<void> _reservar(String espacioId, String fecha) async {
+    final horaInicio = "$selectedHora:00";
+    final int horaInt = int.parse(selectedHora.split(':')[0]) + 1;
+    final horaFin = "${horaInt.toString().padLeft(2, '0')}:00:00";
+
     final res = await http.post(
       Uri.parse('$baseUrl/reservas'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'usuario_id': currentUserId,
         'espacio_id': espacioId,
-        'fecha': '2026-08-25',
-        'hora_inicio': '18:00:00',
-        'hora_fin': '19:00:00'
+        'fecha': fecha,
+        'hora_inicio': horaInicio,
+        'hora_fin': horaFin,
       }),
     );
 
     if (mounted) {
       if (res.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Reserva realizada con éxito!')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('¡Reserva confirmada para el $fecha a las $selectedHora hs!'), backgroundColor: Colors.green),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al realizar reserva.')));
+        final error = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al realizar reserva'), backgroundColor: Colors.red),
+        );
       }
     }
   }
 }
 
-// --- 5. MIS RESERVAS PAGE ---
+// --- 6. MIS RESERVAS PAGE ---
 class MisReservasPage extends StatefulWidget {
   const MisReservasPage({super.key});
 

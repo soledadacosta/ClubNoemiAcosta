@@ -9,7 +9,7 @@ import models, schemas, database
 
 app = FastAPI(title="API Club Noemí Acosta", version="1.0.0")
 
-# Permitir peticiones desde el Frontend en Flutter Web
+# Permitir peticiones desde el Frontend en Flutter
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,7 +17,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # Dependencia para obtener sesión de DB
 def get_db():
@@ -47,10 +46,26 @@ def registrar_usuario(usuario: schemas.UsuarioCreate, db: Session = Depends(get_
 
 @app.post("/auth/login")
 def login(credenciales: schemas.UsuarioLogin, db: Session = Depends(get_db)):
-    user = db.query(models.Usuario).filter(models.Usuario.email == credenciales.email).first()
-    if not user or user.password != credenciales.password:
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    return {"message": "Login exitoso", "user_id": user.id, "email": user.email}
+    # Limpiamos espacios en blanco accidentales de ambos lados
+    email_clean = credenciales.email.strip().lower()
+    pass_clean = credenciales.password.strip()
+
+    # Buscamos el usuario comparando emails en minúscula
+    user = db.query(models.Usuario).filter(models.Usuario.email.ilike(email_clean)).first()
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="El correo electrónico no existe")
+        
+    if user.password.strip() != pass_clean:
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+    
+    return {
+        "message": "Login exitoso",
+        "id": str(user.id),
+        "email": user.email,
+        "nombre": user.nombre,
+        "apellido": user.apellido
+    }
 
 @app.post("/auth/recover-password")
 def recover_password(data: schemas.RecoverPassword, db: Session = Depends(get_db)):
@@ -106,16 +121,13 @@ def obtener_reservas(usuario_id: Optional[UUID] = None, db: Session = Depends(ge
 
 @app.post("/reservas", response_model=schemas.ReservaResponse, status_code=status.HTTP_201_CREATED)
 def crear_reserva(reserva: schemas.ReservaCreate, db: Session = Depends(get_db)):
-    # 1. Validar que la hora comience y termine en el minuto 00
     if reserva.hora_inicio.minute != 0 or reserva.hora_fin.minute != 0:
         raise HTTPException(status_code=400, detail="Las reservas deben hacerse en horarios en punto (minuto 00)")
 
-    # 2. Validar duración mínima (al menos 1 hora)
     duracion = (datetime.combine(datetime.min, reserva.hora_fin) - datetime.combine(datetime.min, reserva.hora_inicio)).total_seconds() / 3600
     if duracion < 1:
         raise HTTPException(status_code=400, detail="La reserva debe durar como mínimo 1 hora")
 
-    # 3. Validar disponibilidad (superposición de horarios)
     solapada = db.query(models.Reserva).filter(
         models.Reserva.espacio_id == reserva.espacio_id,
         models.Reserva.fecha == reserva.fecha,
@@ -127,7 +139,6 @@ def crear_reserva(reserva: schemas.ReservaCreate, db: Session = Depends(get_db))
     if solapada:
         raise HTTPException(status_code=409, detail="El espacio deportivo no está disponible en ese horario")
 
-    # 4. Obtener precio del espacio para calcular monto total
     espacio = db.query(models.EspacioDeportivo).filter(models.EspacioDeportivo.id == reserva.espacio_id).first()
     if not espacio:
         raise HTTPException(status_code=404, detail="El espacio deportivo especificado no existe")
