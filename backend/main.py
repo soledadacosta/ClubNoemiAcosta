@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -7,6 +8,16 @@ from datetime import datetime, time, timedelta
 import models, schemas, database
 
 app = FastAPI(title="API Club Noemí Acosta", version="1.0.0")
+
+# Permitir peticiones desde el Frontend en Flutter Web
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Dependencia para obtener sesión de DB
 def get_db():
