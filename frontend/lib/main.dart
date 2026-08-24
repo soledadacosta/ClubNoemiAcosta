@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_svg/flutter_svg.dart';
 
 void main() {
   runApp(const ClubApp());
@@ -23,6 +24,25 @@ class ClubApp extends StatelessWidget {
       initialRoute: '/login',
       routes: {
         '/login': (context) => const LoginScreen(),
+      },
+      builder: (context, child) {
+        return Container(
+          color: const Color(0xFF000000),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 412,
+                maxHeight: 892,
+              ),
+              child: MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  size: const Size(412, 892),
+                ),
+                child: child!,
+              ),
+            ),
+          ),
+        );
       },
     );
   }
@@ -97,7 +117,25 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: Container(color: const Color(0xFF050508)),
+            child: Image.asset(
+              'assets/images/Image.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.88),
+                    Colors.black.withValues(alpha: 0.88),
+                    Colors.black.withValues(alpha: 0.84),
+                  ],
+                ),
+              ),
+            ),
           ),
           SafeArea(
             child: Center(
@@ -154,11 +192,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: const TextStyle(color: Colors.white),
                       decoration: _buildInputDecoration('Contraseña').copyWith(
                         suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                            color: Colors.white.withValues(alpha: 0.30),
-                            size: 20,
-                          ),
+                          icon: SvgPicture.asset(
+                              'assets/icons/Icon.svg',
+                              width: 16,
+                              height: 16,
+                            ),
                           onPressed: () {
                             setState(() => _obscurePassword = !_obscurePassword);
                           },
